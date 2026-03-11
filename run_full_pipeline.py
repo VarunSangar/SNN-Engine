@@ -22,15 +22,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import sys
+import os
+from pathlib import Path
 
-from axiom_neuro.core.simulation_engine  import SimulationEngine, SimConfig
-from axiom_neuro.io.data_loader          import SyntheticDataGenerator, SpikeDataLoader, ReplayEngine
-from axiom_neuro.core.lif_model          import LIFPopulation, LIFParams
-from axiom_neuro.core.synaptic_matrix    import SparseWeightMatrix, SynapseParams
-from axiom_neuro.learning.stdp           import STDPEngine, STDPParams
-from axiom_neuro.geometry.manifold_mapper import NeuronEmbedding, ManifoldMapper
-from axiom_neuro.visualization.plotter   import RasterPlot, NetworkDashboard
+# Simplified Direct Imports
+from simulation_engine import SimulationEngine, SimConfig
+from data_loader       import SyntheticDataGenerator, SpikeDataLoader, ReplayEngine
+from lif_model          import LIFPopulation, LIFParams
+from synaptic_matrix    import SparseWeightMatrix, SynapseParams
+from stdp               import STDPEngine, STDPParams
+from manifold_mapper    import NeuronEmbedding, ManifoldMapper
+from plotter            import RasterPlot, NetworkDashboard
 
 
 def example_1_basic_simulation():
