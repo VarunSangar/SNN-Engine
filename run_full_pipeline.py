@@ -1,29 +1,60 @@
 import sys
 import os
+import importlib.util
 from pathlib import Path
 
-# 1. Get the directory where this file lives
+# 1. Setup paths
 root_dir = Path(__file__).parent.absolute()
+sys.path.insert(0, str(root_dir))
 
-# 2. Add the root directory to sys.path
-if str(root_dir) not in sys.path:
-    sys.path.insert(0, str(root_dir))
+# 2. THE ULTIMATE MONKEY PATCH
+# This function manually loads a file and tells Python it belongs to "axiom_neuro"
+def force_load(name, filename):
+    full_name = f"axiom_neuro.{name}"
+    if full_name in sys.modules:
+        return sys.modules[full_name]
+    
+    spec = importlib.util.spec_from_file_location(full_name, str(root_dir / f"{filename}.py"))
+    mod = importlib.util.module_from_spec(spec)
+    # This line is the magic: it tells the file its parent is axiom_neuro
+    mod.__package__ = "axiom_neuro" 
+    sys.modules[full_name] = mod
+    sys.modules[name] = mod # Also accessible without the prefix
+    spec.loader.exec_module(mod)
+    return mod
 
-# 3. MAPPING MAGIC: 
-# This tells Python that if it looks for "axiom_neuro", it should look at the current folder.
-# This fixes the "ModuleNotFoundError: No module named 'axiom_neuro'"
-import types
-axiom_neuro = types.ModuleType("axiom_neuro")
-sys.modules["axiom_neuro"] = axiom_neuro
+print("🧠 Axiom-Neuro: Engaging Forced Module Injection...")
 
-# 4. Fix sub-packages (core, io, learning, etc.)
-for sub in ["core", "io", "learning", "geometry", "visualization"]:
-    sub_mod = types.ModuleType(sub)
-    sys.modules[f"axiom_neuro.{sub}"] = sub_mod
-    # Direct all sub-imports to look in the root folder
-    setattr(axiom_neuro, sub, sub_mod)
+# Load core files first
+lif_model = force_load("lif_model", "lif_model")
+synaptic_matrix = force_load("synaptic_matrix", "synaptic_matrix")
+stdp = force_load("stdp", "stdp")
+manifold_mapper = force_load("manifold_mapper", "manifold_mapper")
+plotter = force_load("plotter", "plotter")
 
-print("🧠 Axiom-Neuro Virtual Package Mapping Complete")
+# Now load the big ones that depend on the dots
+simulation_engine = force_load("simulation_engine", "simulation_engine")
+data_loader = force_load("data_loader", "data_loader")
+
+# 3. MAP THE CLASSES INTO THE CURRENT NAMESPACE
+# This matches your run_full_pipeline.py usage
+SimulationEngine = simulation_engine.SimulationEngine
+SimConfig = simulation_engine.SimConfig
+SyntheticDataGenerator = data_loader.SyntheticDataGenerator
+SpikeDataLoader = data_loader.SpikeDataLoader
+ReplayEngine = data_loader.ReplayEngine
+LIFPopulation = lif_model.LIFPopulation
+LIFParams = lif_model.LIFParams
+SparseWeightMatrix = synaptic_matrix.SparseWeightMatrix
+SynapseParams = synaptic_matrix.SynapseParams
+STDPEngine = stdp.STDPEngine
+STDPParams = stdp.STDPParams
+ManifoldMapper = manifold_mapper.ManifoldMapper
+NeuronEmbedding = manifold_mapper.NeuronEmbedding
+RasterPlot = plotter.RasterPlot
+NetworkDashboard = plotter.NetworkDashboard
+
+print("🚀 All modules injected. Starting Pipeline...")
 
 # NOW your original imports will work:
 from simulation_engine import SimulationEngine, SimConfig
