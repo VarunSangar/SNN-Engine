@@ -1,32 +1,31 @@
-"""
-axiom_neuro/examples/run_full_pipeline.py
-==========================================
-Full Axiom-Neuro Pipeline Demonstration
-=========================================
-
-Demonstrates:
-  1. Basic LIF simulation with STDP
-  2. Manifold mapper tracking information geometry
-  3. CSV data ingestion + replay learning
-  4. Raster + dashboard visualization
-  5. Minkowski Sum of consecutive manifolds
-
-Run from repo root:
-    python axiom_neuro/examples/run_full_pipeline.py
-"""
-
-import sys
-import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from pathlib import Path
-
 import sys
 import os
 from pathlib import Path
 
-# Simplified Direct Imports
+# 1. Get the directory where this file lives
+root_dir = Path(__file__).parent.absolute()
+
+# 2. Add the root directory to sys.path
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+
+# 3. MAPPING MAGIC: 
+# This tells Python that if it looks for "axiom_neuro", it should look at the current folder.
+# This fixes the "ModuleNotFoundError: No module named 'axiom_neuro'"
+import types
+axiom_neuro = types.ModuleType("axiom_neuro")
+sys.modules["axiom_neuro"] = axiom_neuro
+
+# 4. Fix sub-packages (core, io, learning, etc.)
+for sub in ["core", "io", "learning", "geometry", "visualization"]:
+    sub_mod = types.ModuleType(sub)
+    sys.modules[f"axiom_neuro.{sub}"] = sub_mod
+    # Direct all sub-imports to look in the root folder
+    setattr(axiom_neuro, sub, sub_mod)
+
+print("🧠 Axiom-Neuro Virtual Package Mapping Complete")
+
+# NOW your original imports will work:
 from simulation_engine import SimulationEngine, SimConfig
 from data_loader       import SyntheticDataGenerator, SpikeDataLoader, ReplayEngine
 from lif_model          import LIFPopulation, LIFParams
