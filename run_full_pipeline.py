@@ -3,58 +3,70 @@ import os
 import importlib.util
 from pathlib import Path
 
-# 1. Setup paths
 root_dir = Path(__file__).parent.absolute()
 sys.path.insert(0, str(root_dir))
 
-# 2. THE ULTIMATE MONKEY PATCH
-# This function manually loads a file and tells Python it belongs to "axiom_neuro"
 def force_load(name, filename):
     full_name = f"axiom_neuro.{name}"
     if full_name in sys.modules:
         return sys.modules[full_name]
     
-    spec = importlib.util.spec_from_file_location(full_name, str(root_dir / f"{filename}.py"))
+    file_path = root_dir / f"{filename}.py"
+    if not file_path.exists():
+        print(f"⚠️ Error: {filename}.py not found in root!")
+        return None
+
+    spec = importlib.util.spec_from_file_location(full_name, str(file_path))
     mod = importlib.util.module_from_spec(spec)
-    # This line is the magic: it tells the file its parent is axiom_neuro
-    mod.__package__ = "axiom_neuro" 
+    mod.__package__ = "axiom_neuro"
     sys.modules[full_name] = mod
-    sys.modules[name] = mod # Also accessible without the prefix
+    sys.modules[name] = mod 
     spec.loader.exec_module(mod)
     return mod
 
-print("🧠 Axiom-Neuro: Engaging Forced Module Injection...")
+print("🧠 Axiom-Neuro: Engaging Universal Discovery...")
 
-# Load core files first
+# 1. Load the Modules
 lif_model = force_load("lif_model", "lif_model")
 synaptic_matrix = force_load("synaptic_matrix", "synaptic_matrix")
 stdp = force_load("stdp", "stdp")
 manifold_mapper = force_load("manifold_mapper", "manifold_mapper")
 plotter = force_load("plotter", "plotter")
-
-# Now load the big ones that depend on the dots
 simulation_engine = force_load("simulation_engine", "simulation_engine")
 data_loader = force_load("data_loader", "data_loader")
 
-# 3. MAP THE CLASSES INTO THE CURRENT NAMESPACE
-# This matches your run_full_pipeline.py usage
-SimulationEngine = simulation_engine.SimulationEngine
-SimConfig = simulation_engine.SimConfig
-SyntheticDataGenerator = data_loader.SyntheticDataGenerator
-SpikeDataLoader = data_loader.SpikeDataLoader
-ReplayEngine = data_loader.ReplayEngine
-LIFPopulation = lif_model.LIFPopulation
-LIFParams = lif_model.LIFParams
-SparseWeightMatrix = synaptic_matrix.SparseWeightMatrix
-SynapseParams = synaptic_matrix.SynapseParams
-STDPEngine = stdp.STDPEngine
-STDPParams = stdp.STDPParams
-ManifoldMapper = manifold_mapper.ManifoldMapper
-NeuronEmbedding = manifold_mapper.NeuronEmbedding
-RasterPlot = plotter.RasterPlot
-NetworkDashboard = plotter.NetworkDashboard
+# 2. Safety Mapping Helper
+def get_attr(module, name):
+    if hasattr(module, name):
+        return getattr(module, name)
+    # If not found, look for similar names (case-insensitive)
+    for attr in dir(module):
+        if attr.lower() == name.lower():
+            return getattr(module, attr)
+    return None
 
-print("🚀 All modules injected. Starting Pipeline...")
+# 3. Final Class Mapping
+SimulationEngine = get_attr(simulation_engine, "SimulationEngine")
+SimConfig        = get_attr(simulation_engine, "SimConfig")
+SyntheticDataGenerator = get_attr(data_loader, "SyntheticDataGenerator")
+SpikeDataLoader        = get_attr(data_loader, "SpikeDataLoader")
+ReplayEngine           = get_attr(data_loader, "ReplayEngine")
+LIFPopulation    = get_attr(lif_model, "LIFPopulation")
+LIFParams        = get_attr(lif_model, "LIFParams")
+SparseWeightMatrix = get_attr(synaptic_matrix, "SparseWeightMatrix")
+SynapseParams      = get_attr(synaptic_matrix, "SynapseParams")
+STDPEngine       = get_attr(stdp, "STDPEngine")
+STDPParams       = get_attr(stdp, "STDPParams")
+ManifoldMapper   = get_attr(manifold_mapper, "ManifoldMapper")
+NeuronEmbedding  = get_attr(manifold_mapper, "NeuronEmbedding")
+RasterPlot       = get_attr(plotter, "RasterPlot")
+NetworkDashboard = get_attr(plotter, "NetworkDashboard")
+
+if SimulationEngine is None:
+    print(f"❌ CRITICAL ERROR: Could not find SimulationEngine in simulation_engine.py")
+    print(f"Available attributes: {[a for a in dir(simulation_engine) if not a.startswith('_')]}")
+
+print("🚀 Pipeline Ready.")
 
 # NOW your original imports will work:
 from simulation_engine import SimulationEngine, SimConfig
