@@ -2,71 +2,78 @@ import sys
 import os
 import importlib.util
 from pathlib import Path
+import types
 
+# 1. Setup root path
 root_dir = Path(__file__).parent.absolute()
 sys.path.insert(0, str(root_dir))
 
-def force_load(name, filename):
-    full_name = f"axiom_neuro.{name}"
-    if full_name in sys.modules:
-        return sys.modules[full_name]
-    
-    file_path = root_dir / f"{filename}.py"
-    if not file_path.exists():
-        print(f"⚠️ Error: {filename}.py not found in root!")
+# 2. CREATE VIRTUAL PACKAGE STRUCTURE
+# We are tricking Python into thinking there is a folder named 'axiom_neuro'
+pkg_name = "axiom_neuro"
+axiom_neuro = types.ModuleType(pkg_name)
+axiom_neuro.__path__ = [str(root_dir)]
+axiom_neuro.__package__ = pkg_name
+sys.modules[pkg_name] = axiom_neuro
+
+# Create virtual sub-packages so that "from ..learning" etc. work
+for sub in ["core", "io", "learning", "geometry", "visualization"]:
+    full_sub = f"{pkg_name}.{sub}"
+    m = types.ModuleType(full_sub)
+    m.__path__ = [str(root_dir)] # Tell them to look in the root dir for files
+    m.__package__ = pkg_name
+    sys.modules[full_sub] = m
+    setattr(axiom_neuro, sub, m)
+
+print("🧠 Axiom-Neuro: Virtual Environment Virtualized.")
+
+# 3. THE MAGIC LOADER
+def load_and_inject(module_path, filename):
+    """Loads a flat file and places it into the virtual package structure."""
+    full_path = root_dir / f"{filename}.py"
+    if not full_path.exists():
+        print(f"⚠️ Warning: {filename}.py not found!")
         return None
 
-    spec = importlib.util.spec_from_file_location(full_name, str(file_path))
+    spec = importlib.util.spec_from_file_location(module_path, str(full_path))
     mod = importlib.util.module_from_spec(spec)
-    mod.__package__ = "axiom_neuro"
-    sys.modules[full_name] = mod
-    sys.modules[name] = mod 
+    
+    # This line is critical: it tells the file where it sits in the hierarchy
+    # so that dots like '..' know how many levels to go up.
+    mod.__package__ = module_path.rsplit('.', 1)[0]
+    
+    sys.modules[module_path] = mod
     spec.loader.exec_module(mod)
     return mod
 
-print("🧠 Axiom-Neuro: Engaging Universal Discovery...")
+# 4. INJECT IN ORDER (Leaf nodes first, then dependents)
+print("📦 Injecting Dependencies...")
+# Core math and models
+lif_model        = load_and_inject("axiom_neuro.core.lif_model", "lif_model")
+synaptic_matrix  = load_and_inject("axiom_neuro.core.synaptic_matrix", "synaptic_matrix")
+# Learning and Geometry
+stdp             = load_and_inject("axiom_neuro.learning.stdp", "stdp")
+manifold_mapper  = load_and_inject("axiom_neuro.geometry.manifold_mapper", "manifold_mapper")
+# Visualization and IO
+plotter          = load_and_inject("axiom_neuro.visualization.plotter", "plotter")
+data_loader      = load_and_inject("axiom_neuro.io.data_loader", "data_loader")
 
-# 1. Load the Modules
-lif_model = force_load("lif_model", "lif_model")
-synaptic_matrix = force_load("synaptic_matrix", "synaptic_matrix")
-stdp = force_load("stdp", "stdp")
-manifold_mapper = force_load("manifold_mapper", "manifold_mapper")
-plotter = force_load("plotter", "plotter")
-simulation_engine = force_load("simulation_engine", "simulation_engine")
-data_loader = force_load("data_loader", "data_loader")
+print("⚙️ Loading Simulation Engine...")
+# Finally, the engine (which uses '..' to reach learning and geometry)
+simulation_engine = load_and_inject("axiom_neuro.core.simulation_engine", "simulation_engine")
 
-# 2. Safety Mapping Helper
-def get_attr(module, name):
-    if hasattr(module, name):
-        return getattr(module, name)
-    # If not found, look for similar names (case-insensitive)
-    for attr in dir(module):
-        if attr.lower() == name.lower():
-            return getattr(module, attr)
-    return None
-
-# 3. Final Class Mapping
-SimulationEngine = get_attr(simulation_engine, "SimulationEngine")
-SimConfig        = get_attr(simulation_engine, "SimConfig")
-SyntheticDataGenerator = get_attr(data_loader, "SyntheticDataGenerator")
-SpikeDataLoader        = get_attr(data_loader, "SpikeDataLoader")
-ReplayEngine           = get_attr(data_loader, "ReplayEngine")
-LIFPopulation    = get_attr(lif_model, "LIFPopulation")
-LIFParams        = get_attr(lif_model, "LIFParams")
-SparseWeightMatrix = get_attr(synaptic_matrix, "SparseWeightMatrix")
-SynapseParams      = get_attr(synaptic_matrix, "SynapseParams")
-STDPEngine       = get_attr(stdp, "STDPEngine")
-STDPParams       = get_attr(stdp, "STDPParams")
-ManifoldMapper   = get_attr(manifold_mapper, "ManifoldMapper")
-NeuronEmbedding  = get_attr(manifold_mapper, "NeuronEmbedding")
-RasterPlot       = get_attr(plotter, "RasterPlot")
-NetworkDashboard = get_attr(plotter, "NetworkDashboard")
-
-if SimulationEngine is None:
-    print(f"❌ CRITICAL ERROR: Could not find SimulationEngine in simulation_engine.py")
-    print(f"Available attributes: {[a for a in dir(simulation_engine) if not a.startswith('_')]}")
-
-print("🚀 Pipeline Ready.")
+# 5. ASSIGN CLASSES FOR THE REST OF THE PIPELINE
+# This maps the classes so the rest of your run_full_pipeline.py code works
+SimulationEngine       = simulation_engine.SimulationEngine
+SimConfig              = simulation_engine.SimConfig
+LIFPopulation          = lif_model.LIFPopulation
+LIFParams              = lif_model.LIFParams
+SparseWeightMatrix     = synaptic_matrix.SparseWeightMatrix
+SynapseParams          = synaptic_matrix.SynapseParams
+STDPEngine             = stdp.STDPEngine
+STDPParams             = stdp.STDPParams
+ManifoldMapper         = manifold_mapper.ManifoldMapper
+NeuronEmbedding        = manifold_mapper.Neuron
 
 # NOW your original imports will work:
 from simulation_engine import SimulationEngine, SimConfig
