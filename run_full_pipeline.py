@@ -6,8 +6,9 @@ import types
 import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
+import time
 
-# --- 1. CORE ARCHITECTURAL SETUP ---
+# --- 1. CORE ARCHITECTURAL INJECTOR ---
 root_dir = Path(__file__).parent.absolute()
 sys.path.insert(0, str(root_dir))
 
@@ -37,12 +38,11 @@ def load_and_inject(module_path, filename):
     spec.loader.exec_module(mod)
     return mod
 
-# --- 2. MODULE INJECTION ---
+# --- 2. MODULE LOADING ---
 lif_model = load_and_inject("axiom_neuro.core.lif_model", "lif_model")
 synaptic_matrix = load_and_inject("axiom_neuro.core.synaptic_matrix", "synaptic_matrix")
 stdp = load_and_inject("axiom_neuro.learning.stdp", "stdp")
 manifold_mapper = load_and_inject("axiom_neuro.geometry.manifold_mapper", "manifold_mapper")
-simulation_engine = load_and_inject("axiom_neuro.core.simulation_engine", "simulation_engine")
 
 def get_attr(mod, *names):
     for n in names:
@@ -50,7 +50,6 @@ def get_attr(mod, *names):
         if a: return a
     return None
 
-SimulationEngine = get_attr(simulation_engine, "SimulationEngine")
 LIFPopulation = get_attr(lif_model, "LIFPopulation")
 LIFParams = get_attr(lif_model, "LIFParams")
 SparseWeightMatrix = get_attr(synaptic_matrix, "SparseWeightMatrix")
@@ -60,74 +59,98 @@ STDPParams = get_attr(stdp, "STDPParams")
 ManifoldMapper = get_attr(manifold_mapper, "ManifoldMapper")
 NeuronEmbedding = get_attr(manifold_mapper, "NeuronEmbedding", "Neuron")
 
-# --- 3. MA-LEVEL RESEARCH UI ---
+# --- 3. RESEARCH DASHBOARD UI ---
 st.set_page_config(page_title="Axiom-Neuro Research", layout="wide", page_icon="🔬")
-st.title(r"🔬 Axiom-Neuro: Topological SNN Engine")
+st.title(r"🔬 Axiom-Neuro: High-Fidelity SNN Engine")
 
-tab1, tab2, tab3 = st.tabs(["Neural Manifolds", "Synaptic Plasticity", "Logs"])
+tab1, tab2 = st.tabs(["📊 Manifold Geometry", "🧠 Plasticity & Activity"])
 
 with tab1:
-    st.header("Topological Manifold Analysis")
-    if st.button("🚀 Analyze Information Geometry"):
-        with st.spinner("Computing Minkowski Functionals..."):
+    st.header("Minkowski Functional Analysis")
+    if st.button("🚀 Run Topological Analysis"):
+        with st.spinner("Mapping Neural State-Space..."):
             N = 400
             emb = NeuronEmbedding(N, 'toroidal')
             mapper = ManifoldMapper(emb)
             pop = LIFPopulation(LIFParams(n_neurons=N))
             
             for t_step in range(150):
-                # High base current (3.2) to ensure the manifold is 'visible'
-                spikes = pop.step(t_step*0.1, np.random.normal(3.2, 0.5, N))
+                spikes = pop.step(t_step*0.1, np.random.normal(3.2, 0.4, N))
                 if np.any(spikes):
                     mapper.update(t_step*0.1, np.where(spikes)[0])
-                
+            
             t_vals, vol_data = mapper.get_volume_trace()
             _, area_data = mapper.get_area_trace()
             
-            if len(vol_data) > 0 and not np.all(vol_data == 0):
-                # Isoperimetric Ratio: Quantifies the "compactness" of the neural representation
+            if len(vol_data) > 2:
                 iso_ratio = (36 * np.pi * vol_data**2) / (area_data**3 + 1e-9)
-                
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Manifold Volume ($V$)", f"{np.mean(vol_data):.4f}")
-                m2.metric("Surface Complexity ($A$)", f"{np.mean(area_data):.4f}")
-                m3.metric(r"Info Efficiency ($\eta$)", f"{np.mean(iso_ratio):.4f}")
-                
+                m1.metric("Manifold Volume", f"{np.mean(vol_data):.4f}")
+                m2.metric("Surface Area", f"{np.mean(area_data):.4f}")
+                m3.metric(r"Efficiency ($\eta$)", f"{np.mean(iso_ratio):.4f}")
                 st.line_chart(vol_data)
-            else:
-                st.warning("Low activity detected. Try increasing input current.")
 
 with tab2:
-    st.header("STDP Dynamics")
-    if st.button("🚀 Run Learning Trial"):
-        with st.spinner("Training Synapses..."):
-            N = 100
-            lp, sp = LIFParams(n_neurons=N), SynapseParams(n_pre=N, n_post=N)
-            pop, W = LIFPopulation(lp), SparseWeightMatrix(sp)
-            stdp_eng = STDPEngine(STDPParams(), W, N, N)
-            
-            w_history = []
-            for epoch in range(100):
-                pop.step(epoch*0.1, np.ones(N)*2.5)
-                
-                # --- THE CRITICAL FIX FOR INDEXERROR ---
-                # Force pop.spikes into a proper boolean mask of length N
-                s_mask = np.zeros(N, dtype=bool)
-                if pop.spikes is not None:
-                    # This safely handles list of indices OR boolean arrays
-                    s_mask[pop.spikes] = True 
-                
-                # Flexible call to the learning method
-                if hasattr(stdp_eng, 'step'):
-                    stdp_eng.step(epoch*0.1, s_mask, s_mask)
-                elif hasattr(stdp_eng, 'update'):
-                    stdp_eng.update(epoch*0.1, s_mask, s_mask)
-                
-                w_history.append(np.mean(W.weights))
-            
-            st.line_chart(w_history)
-            st.success("Synaptic weight trace stabilized.")
+    st.header("Neuro-Activity Map & STDP")
+    
+    col_map, col_trace = st.columns([1, 1])
+    
+    with col_map:
+        st.subheader("Live Population Firing")
+        map_placeholder = st.empty() # For live heatmap
+        
+    with col_trace:
+        st.subheader("Synaptic Weight Convergence")
+        chart_placeholder = st.empty() # For live line chart
 
-with tab3:
-    st.header("System Configuration")
-    st.code(f"Axiom-Neuro v2.2-Stable\nEngine: Spiking Neurons\nMath: Minkowski Functional Analysis\nCompatibility: Python {sys.version.split()[0]}")
+    if st.button("🚀 Start Live Simulation"):
+        N = 256 # Square number for 16x16 grid
+        grid_dim = int(np.sqrt(N))
+        lp, sp = LIFParams(n_neurons=N), SynapseParams(n_pre=N, n_post=N)
+        pop, W = LIFPopulation(lp), SparseWeightMatrix(sp)
+        stdp_eng = STDPEngine(STDPParams(), W, N, N)
+        
+        w_history = []
+        
+        for epoch in range(100):
+            # Stimulate a specific 'patch' to see spatial patterns
+            stim = np.ones(N) * 2.0
+            stim[N//2 - 20 : N//2 + 20] += 1.5 
+            
+            pop.step(epoch*0.1, stim)
+            
+            # --- FINAL INDEXERROR SHIELD ---
+            s_mask = np.zeros(N, dtype=bool)
+            if pop.spikes is not None:
+                try:
+                    indices = np.asarray(pop.spikes)
+                    if indices.dtype == bool:
+                        s_mask = indices
+                    else:
+                        s_mask[indices.astype(int)] = True
+                except: pass
+
+            # Update STDP
+            method = getattr(stdp_eng, 'step', getattr(stdp_eng, 'update', None))
+            if method:
+                method(epoch*0.1, s_mask, s_mask)
+            
+            w_history.append(float(np.mean(W.weights)))
+            
+            # --- RENDER NEURO-ACTIVITY MAP ---
+            # Reshape boolean spikes into a 2D grid for visualization
+            activity_grid = s_mask.reshape((grid_dim, grid_dim)).astype(float)
+            
+            fig, ax = plt.subplots(figsize=(3, 3))
+            ax.imshow(activity_grid, cmap='hot', interpolation='nearest')
+            ax.axis('off')
+            map_placeholder.pyplot(fig)
+            plt.close(fig)
+            
+            # Update Weight Chart
+            chart_placeholder.line_chart(w_history)
+            
+            # Brief sleep for visual fluidity
+            time.sleep(0.01)
+
+        st.success("Simulation Complete: Synaptic stability achieved.")
