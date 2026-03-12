@@ -53,7 +53,7 @@ def get_attr(mod, *names):
 LIFPopulation = get_attr(lif_model, "LIFPopulation")
 LIFParams = get_attr(lif_model, "LIFParams")
 SparseWeightMatrix = get_attr(synaptic_matrix, "SparseWeightMatrix")
-SynapseParams = get_attr(synaptic_matrix, "SynapseParams")
+SynapseParams = get_attr(synapse_params if 'synapse_params' in locals() else synaptic_matrix, "SynapseParams")
 STDPEngine = get_attr(stdp, "STDPEngine")
 STDPParams = get_attr(stdp, "STDPParams")
 ManifoldMapper = get_attr(manifold_mapper, "ManifoldMapper")
@@ -63,94 +63,87 @@ NeuronEmbedding = get_attr(manifold_mapper, "NeuronEmbedding", "Neuron")
 st.set_page_config(page_title="Axiom-Neuro Research", layout="wide", page_icon="🔬")
 st.title(r"🔬 Axiom-Neuro: High-Fidelity SNN Engine")
 
-tab1, tab2 = st.tabs(["📊 Manifold Geometry", "🧠 Plasticity & Activity"])
+tab1, tab2 = st.tabs(["📊 Manifold Geometry", "🧠 Plasticity & Activity Map"])
 
 with tab1:
-    st.header("Minkowski Functional Analysis")
+    st.header("Topological Manifold Analysis")
     if st.button("🚀 Run Topological Analysis"):
         with st.spinner("Mapping Neural State-Space..."):
-            N = 400
-            emb = NeuronEmbedding(N, 'toroidal')
+            N_topo = 400
+            emb = NeuronEmbedding(N_topo, 'toroidal')
             mapper = ManifoldMapper(emb)
-            pop = LIFPopulation(LIFParams(n_neurons=N))
-            
+            pop = LIFPopulation(LIFParams(n_neurons=N_topo))
             for t_step in range(150):
-                spikes = pop.step(t_step*0.1, np.random.normal(3.2, 0.4, N))
+                spikes = pop.step(t_step*0.1, np.random.normal(3.2, 0.4, N_topo))
                 if np.any(spikes):
                     mapper.update(t_step*0.1, np.where(spikes)[0])
-            
             t_vals, vol_data = mapper.get_volume_trace()
             _, area_data = mapper.get_area_trace()
-            
             if len(vol_data) > 2:
                 iso_ratio = (36 * np.pi * vol_data**2) / (area_data**3 + 1e-9)
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Manifold Volume", f"{np.mean(vol_data):.4f}")
-                m2.metric("Surface Area", f"{np.mean(area_data):.4f}")
+                m1.metric("Volume", f"{np.mean(vol_data):.4f}")
+                m2.metric("Surface", f"{np.mean(area_data):.4f}")
                 m3.metric(r"Efficiency ($\eta$)", f"{np.mean(iso_ratio):.4f}")
                 st.line_chart(vol_data)
 
 with tab2:
     st.header("Neuro-Activity Map & STDP")
-    
     col_map, col_trace = st.columns([1, 1])
-    
-    with col_map:
-        st.subheader("Live Population Firing")
-        map_placeholder = st.empty() # For live heatmap
-        
-    with col_trace:
-        st.subheader("Synaptic Weight Convergence")
-        chart_placeholder = st.empty() # For live line chart
+    with col_map: map_placeholder = st.empty()
+    with col_trace: chart_placeholder = st.empty()
 
     if st.button("🚀 Start Live Simulation"):
-        N = 256 # Square number for 16x16 grid
-        grid_dim = int(np.sqrt(N))
-        lp, sp = LIFParams(n_neurons=N), SynapseParams(n_pre=N, n_post=N)
-        pop, W = LIFPopulation(lp), SparseWeightMatrix(sp)
-        stdp_eng = STDPEngine(STDPParams(), W, N, N)
+        # USE 256 TO ENSURE SQUARE 16x16 GRID
+        N_stdp = 256 
+        grid_dim = 16
+        lp = LIFParams(n_neurons=N_stdp)
+        # Ensure SynapseParams matches N_stdp
+        sp = SynapseParams(n_pre=N_stdp, n_post=N_stdp)
         
-        w_history = []
+        pop = LIFPopulation(lp)
+        W = SparseWeightMatrix(sp)
+        stdp_eng = STDPEngine(STDPParams(), W, N_stdp, N_stdp)
         
-        for epoch in range(100):
-            # Stimulate a specific 'patch' to see spatial patterns
-            stim = np.ones(N) * 2.0
-            stim[N//2 - 20 : N//2 + 20] += 1.5 
-            
-            pop.step(epoch*0.1, stim)
-            
-            # --- FINAL INDEXERROR SHIELD ---
-            s_mask = np.zeros(N, dtype=bool)
-            if pop.spikes is not None:
-                try:
-                    indices = np.asarray(pop.spikes)
-                    if indices.dtype == bool:
-                        s_mask = indices
-                    else:
-                        s_mask[indices.astype(int)] = True
-                except: pass
+        # --- THE FIX: DETECT BACKEND SHAPE ---
+        # We look at the actual trace array in your STDPEngine to get the true N
+        target_n_pre = stdp_eng.x_pre.shape[0] if hasattr(stdp_eng, 'x_pre') else N_stdp
+        target_n_post = stdp_eng.x_post.shape[0] if hasattr(stdp_eng, 'x_post') else N_stdp
 
-            # Update STDP
+        w_history = []
+        for epoch in range(100):
+            pop.step(epoch*0.1, np.ones(N_stdp) * 2.8)
+            
+            # --- ROBUST MASK GENERATION ---
+            # Pre-spike mask
+            s_mask_pre = np.zeros(target_n_pre, dtype=bool)
+            # Post-spike mask (assuming same pop for this trial)
+            s_mask_post = np.zeros(target_n_post, dtype=bool)
+            
+            if pop.spikes is not None:
+                # Get indices regardless of format
+                indices = np.where(pop.spikes)[0] if np.asarray(pop.spikes).dtype == bool else np.asarray(pop.spikes).astype(int)
+                # Only map indices that fit the target backend size
+                valid_indices_pre = indices[indices < target_n_pre]
+                valid_indices_post = indices[indices < target_n_post]
+                s_mask_pre[valid_indices_pre] = True
+                s_mask_post[valid_indices_post] = True
+
+            # Universal Dispatcher
             method = getattr(stdp_eng, 'step', getattr(stdp_eng, 'update', None))
             if method:
-                method(epoch*0.1, s_mask, s_mask)
+                # Passing the specific shapes the backend expects
+                method(epoch*0.1, s_mask_pre, s_mask_post)
             
             w_history.append(float(np.mean(W.weights)))
             
-            # --- RENDER NEURO-ACTIVITY MAP ---
-            # Reshape boolean spikes into a 2D grid for visualization
-            activity_grid = s_mask.reshape((grid_dim, grid_dim)).astype(float)
-            
+            # Update Heatmap (using s_mask_pre for the 16x16 view)
+            viz_grid = s_mask_pre[:256].reshape((16, 16)).astype(float)
             fig, ax = plt.subplots(figsize=(3, 3))
-            ax.imshow(activity_grid, cmap='hot', interpolation='nearest')
+            ax.imshow(viz_grid, cmap='magma')
             ax.axis('off')
             map_placeholder.pyplot(fig)
             plt.close(fig)
             
-            # Update Weight Chart
             chart_placeholder.line_chart(w_history)
-            
-            # Brief sleep for visual fluidity
             time.sleep(0.01)
-
-        st.success("Simulation Complete: Synaptic stability achieved.")
