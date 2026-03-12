@@ -29,22 +29,41 @@ st.set_page_config(
 )
  
 # ── Bootstrap path ────────────────────────────────────────────────────────────
-file_path = Path(__file__).resolve()
-root_dir  = file_path.parent
-if not (root_dir / "axiom_neuro").exists():
-    root_dir = root_dir.parent
-sys.path.insert(0, str(root_dir))
- 
-# ── Imports ───────────────────────────────────────────────────────────────────
+# ── Imports (FLAT STRUCTURE ADAPTATION) ───────────────────────────────────────
+# We check if we are in a flat structure (all files in root) or package structure
 try:
-    from axiom_neuro.core.simulation_engine  import SimulationEngine, SimConfig
-    from axiom_neuro.core.lif_model          import LIFPopulation, LIFParams
-    from axiom_neuro.core.synaptic_matrix    import SparseWeightMatrix, SynapseParams
-    from axiom_neuro.learning.stdp           import STDPEngine, STDPParams
-    from axiom_neuro.geometry.manifold_mapper import NeuronEmbedding, ManifoldMapper
-    from axiom_neuro.io.data_loader          import (
-        SyntheticDataGenerator, SpikeDataLoader, ReplayEngine
-    )
+    if (root_dir / "lif_model.py").exists():
+        # FLAT STRUCTURE: Import directly from the root
+        import simulation_engine
+        import lif_model
+        import synaptic_matrix
+        import stdp as stdp_mod
+        import manifold_mapper as manifold
+        import data_loader
+        
+        SimulationEngine = simulation_engine.SimulationEngine
+        SimConfig        = simulation_engine.SimConfig
+        LIFPopulation    = lif_model.LIFPopulation
+        LIFParams        = lif_model.LIFParams
+        SparseWeightMatrix = synaptic_matrix.SparseWeightMatrix
+        SynapseParams    = synaptic_matrix.SynapseParams
+        STDPEngine       = stdp_mod.STDPEngine
+        STDPParams       = stdp_mod.STDPParams
+        NeuronEmbedding  = manifold.NeuronEmbedding
+        ManifoldMapper   = manifold.ManifoldMapper
+        SyntheticDataGenerator = data_loader.SyntheticDataGenerator
+        SpikeDataLoader        = data_loader.SpikeDataLoader
+        ReplayEngine           = data_loader.ReplayEngine
+    else:
+        # PACKAGE STRUCTURE: Use the original axiom_neuro namespace
+        from axiom_neuro.core.simulation_engine  import SimulationEngine, SimConfig
+        from axiom_neuro.core.lif_model          import LIFPopulation, LIFParams
+        from axiom_neuro.core.synaptic_matrix    import SparseWeightMatrix, SynapseParams
+        from axiom_neuro.learning.stdp           import STDPEngine, STDPParams
+        from axiom_neuro.geometry.manifold_mapper import NeuronEmbedding, ManifoldMapper
+        from axiom_neuro.io.data_loader          import (
+            SyntheticDataGenerator, SpikeDataLoader, ReplayEngine
+        )
     _IMPORTS_OK = True
 except Exception as e:
     _IMPORTS_OK = False
