@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 import time
 
-# --- 1. CORE ARCHITECTURAL INJECTOR ---
+# --- 1. ARCHITECTURAL INJECTOR ---
 root_dir = Path(__file__).parent.absolute()
 sys.path.insert(0, str(root_dir))
 
@@ -53,14 +53,14 @@ def get_attr(mod, *names):
 LIFPopulation = get_attr(lif_model, "LIFPopulation")
 LIFParams = get_attr(lif_model, "LIFParams")
 SparseWeightMatrix = get_attr(synaptic_matrix, "SparseWeightMatrix")
-SynapseParams = get_attr(synapse_params if 'synapse_params' in locals() else synaptic_matrix, "SynapseParams")
+SynapseParams = get_attr(synaptic_matrix, "SynapseParams")
 STDPEngine = get_attr(stdp, "STDPEngine")
 STDPParams = get_attr(stdp, "STDPParams")
 ManifoldMapper = get_attr(manifold_mapper, "ManifoldMapper")
 NeuronEmbedding = get_attr(manifold_mapper, "NeuronEmbedding", "Neuron")
 
-# --- 3. RESEARCH DASHBOARD UI ---
-st.set_page_config(page_title="Axiom-Neuro Research", layout="wide", page_icon="🔬")
+# --- 3. UI DASHBOARD ---
+st.set_page_config(page_title="Axiom-Neuro Research", layout="wide")
 st.title(r"🔬 Axiom-Neuro: High-Fidelity SNN Engine")
 
 tab1, tab2 = st.tabs(["📊 Manifold Geometry", "🧠 Plasticity & Activity Map"])
@@ -68,24 +68,16 @@ tab1, tab2 = st.tabs(["📊 Manifold Geometry", "🧠 Plasticity & Activity Map"
 with tab1:
     st.header("Topological Manifold Analysis")
     if st.button("🚀 Run Topological Analysis"):
-        with st.spinner("Mapping Neural State-Space..."):
-            N_topo = 400
-            emb = NeuronEmbedding(N_topo, 'toroidal')
-            mapper = ManifoldMapper(emb)
-            pop = LIFPopulation(LIFParams(n_neurons=N_topo))
-            for t_step in range(150):
-                spikes = pop.step(t_step*0.1, np.random.normal(3.2, 0.4, N_topo))
-                if np.any(spikes):
-                    mapper.update(t_step*0.1, np.where(spikes)[0])
-            t_vals, vol_data = mapper.get_volume_trace()
-            _, area_data = mapper.get_area_trace()
-            if len(vol_data) > 2:
-                iso_ratio = (36 * np.pi * vol_data**2) / (area_data**3 + 1e-9)
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Volume", f"{np.mean(vol_data):.4f}")
-                m2.metric("Surface", f"{np.mean(area_data):.4f}")
-                m3.metric(r"Efficiency ($\eta$)", f"{np.mean(iso_ratio):.4f}")
-                st.line_chart(vol_data)
+        N_topo = 400
+        emb = NeuronEmbedding(N_topo, 'toroidal')
+        mapper = ManifoldMapper(emb)
+        pop = LIFPopulation(LIFParams(n_neurons=N_topo))
+        for t_step in range(150):
+            spikes = pop.step(t_step*0.1, np.random.normal(3.2, 0.4, N_topo))
+            if np.any(spikes):
+                mapper.update(t_step*0.1, np.where(spikes)[0])
+        _, vol_data = mapper.get_volume_trace()
+        st.line_chart(vol_data)
 
 with tab2:
     st.header("Neuro-Activity Map & STDP")
@@ -94,53 +86,50 @@ with tab2:
     with col_trace: chart_placeholder = st.empty()
 
     if st.button("🚀 Start Live Simulation"):
-        # USE 256 TO ENSURE SQUARE 16x16 GRID
         N_stdp = 256 
-        grid_dim = 16
         lp = LIFParams(n_neurons=N_stdp)
-        # Ensure SynapseParams matches N_stdp
         sp = SynapseParams(n_pre=N_stdp, n_post=N_stdp)
-        
         pop = LIFPopulation(lp)
         W = SparseWeightMatrix(sp)
         stdp_eng = STDPEngine(STDPParams(), W, N_stdp, N_stdp)
         
-        # --- THE FIX: DETECT BACKEND SHAPE ---
-        # We look at the actual trace array in your STDPEngine to get the true N
-        target_n_pre = stdp_eng.x_pre.shape[0] if hasattr(stdp_eng, 'x_pre') else N_stdp
-        target_n_post = stdp_eng.x_post.shape[0] if hasattr(stdp_eng, 'x_post') else N_stdp
+        # --- SHAPE DISCOVERY ---
+        n_pre_limit = stdp_eng.x_pre.shape[0]
+        n_post_limit = stdp_eng.x_post.shape[0]
 
         w_history = []
         for epoch in range(100):
+            # 1. Step the population
             pop.step(epoch*0.1, np.ones(N_stdp) * 2.8)
             
-            # --- ROBUST MASK GENERATION ---
-            # Pre-spike mask
-            s_mask_pre = np.zeros(target_n_pre, dtype=bool)
-            # Post-spike mask (assuming same pop for this trial)
-            s_mask_post = np.zeros(target_n_post, dtype=bool)
-            
-            if pop.spikes is not None:
-                # Get indices regardless of format
-                indices = np.where(pop.spikes)[0] if np.asarray(pop.spikes).dtype == bool else np.asarray(pop.spikes).astype(int)
-                # Only map indices that fit the target backend size
-                valid_indices_pre = indices[indices < target_n_pre]
-                valid_indices_post = indices[indices < target_n_post]
-                s_mask_pre[valid_indices_pre] = True
-                s_mask_post[valid_indices_post] = True
+            # 2. Convert spikes to INTEGER INDICES (The Fix)
+            # This ensures pop.spikes is handled correctly whether it's bool or int
+            raw_spikes = np.asarray(pop.spikes)
+            if raw_spikes.dtype == bool:
+                spike_idx = np.where(raw_spikes)[0].astype(int)
+            else:
+                spike_idx = raw_spikes.astype(int)
 
-            # Universal Dispatcher
+            # 3. BOUNDARY CLIPPING (Prevents IndexError)
+            idx_pre = spike_idx[spike_idx < n_pre_limit]
+            idx_post = spike_idx[spike_idx < n_post_limit]
+
+            # 4. DISPATCH
             method = getattr(stdp_eng, 'step', getattr(stdp_eng, 'update', None))
             if method:
-                # Passing the specific shapes the backend expects
-                method(epoch*0.1, s_mask_pre, s_mask_post)
+                # We pass the integer arrays directly
+                method(epoch*0.1, idx_pre, idx_post)
             
             w_history.append(float(np.mean(W.weights)))
             
-            # Update Heatmap (using s_mask_pre for the 16x16 view)
-            viz_grid = s_mask_pre[:256].reshape((16, 16)).astype(float)
+            # --- ACTIVITY HEATMAP ---
+            # Create visualization mask for the grid
+            viz_mask = np.zeros(256)
+            viz_mask[spike_idx[spike_idx < 256]] = 1.0
+            viz_grid = viz_mask.reshape((16, 16))
+            
             fig, ax = plt.subplots(figsize=(3, 3))
-            ax.imshow(viz_grid, cmap='magma')
+            ax.imshow(viz_grid, cmap='magma', interpolation='nearest')
             ax.axis('off')
             map_placeholder.pyplot(fig)
             plt.close(fig)
