@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 import time
 
-# --- 1. ARCHITECTURAL INJECTOR ---
+# --- 1. CORE ARCHITECTURAL INJECTOR ---
 root_dir = Path(__file__).parent.absolute()
 sys.path.insert(0, str(root_dir))
 
@@ -66,70 +66,76 @@ st.title(r"🔬 Axiom-Neuro: High-Fidelity SNN Engine")
 tab1, tab2 = st.tabs(["📊 Manifold Geometry", "🧠 Plasticity & Activity Map"])
 
 with tab1:
-    st.header("Topological Manifold Analysis")
-    if st.button("🚀 Run Topological Analysis"):
+    st.header("Topological Analysis")
+    if st.button("🚀 Run Analysis"):
         N_topo = 400
+        pop = LIFPopulation(LIFParams(n_neurons=N_topo))
         emb = NeuronEmbedding(N_topo, 'toroidal')
         mapper = ManifoldMapper(emb)
-        pop = LIFPopulation(LIFParams(n_neurons=N_topo))
-        for t_step in range(150):
-            spikes = pop.step(t_step*0.1, np.random.normal(3.2, 0.4, N_topo))
-            if np.any(spikes):
-                mapper.update(t_step*0.1, np.where(spikes)[0])
-        _, vol_data = mapper.get_volume_trace()
-        st.line_chart(vol_data)
+        for t in range(100):
+            spikes = pop.step(t*0.1, np.random.normal(3.0, 0.5, N_topo))
+            if np.any(spikes): mapper.update(t*0.1, np.where(spikes)[0])
+        st.line_chart(mapper.get_volume_trace()[1])
 
 with tab2:
     st.header("Neuro-Activity Map & STDP")
-    col_map, col_trace = st.columns([1, 1])
-    with col_map: map_placeholder = st.empty()
-    with col_trace: chart_placeholder = st.empty()
+    col_map, col_trace = st.columns(2)
+    map_placeholder = col_map.empty()
+    chart_placeholder = col_trace.empty()
 
     if st.button("🚀 Start Live Simulation"):
+        # We use 256 neurons for a clean 16x16 grid
         N_stdp = 256 
-        lp = LIFParams(n_neurons=N_stdp)
-        sp = SynapseParams(n_pre=N_stdp, n_post=N_stdp)
-        pop = LIFPopulation(lp)
-        W = SparseWeightMatrix(sp)
+        pop = LIFPopulation(LIFParams(n_neurons=N_stdp))
+        W = SparseWeightMatrix(SynapseParams(n_pre=N_stdp, n_post=N_stdp))
         stdp_eng = STDPEngine(STDPParams(), W, N_stdp, N_stdp)
         
-        # --- SHAPE DISCOVERY ---
-        n_pre_limit = stdp_eng.x_pre.shape[0]
-        n_post_limit = stdp_eng.x_post.shape[0]
+        # --- THE ULTIMATE SHAPE SYNCHRONIZER ---
+        # We grab the EXACT expected size from the backend arrays themselves
+        # This bypasses any mismatch between UI config and STDP internal state
+        try:
+            n_pre_required = len(stdp_eng.x_pre)
+            n_post_required = len(stdp_eng.x_post)
+        except AttributeError:
+            n_pre_required = N_stdp
+            n_post_required = N_stdp
 
         w_history = []
         for epoch in range(100):
-            # 1. Step the population
-            pop.step(epoch*0.1, np.ones(N_stdp) * 2.8)
+            pop.step(epoch*0.1, np.ones(N_stdp) * 3.0)
             
-            # 2. Convert spikes to INTEGER INDICES (The Fix)
-            # This ensures pop.spikes is handled correctly whether it's bool or int
-            raw_spikes = np.asarray(pop.spikes)
-            if raw_spikes.dtype == bool:
-                spike_idx = np.where(raw_spikes)[0].astype(int)
-            else:
-                spike_idx = raw_spikes.astype(int)
+            # --- CREATE THE PERFECT MASK ---
+            # 1. Start with zeros of the EXACT size the backend expects
+            s_mask_pre = np.zeros(n_pre_required, dtype=bool)
+            s_mask_post = np.zeros(n_post_required, dtype=bool)
+            
+            if pop.spikes is not None:
+                # 2. Get active indices from current population
+                active_indices = np.where(pop.spikes)[0] if np.asarray(pop.spikes).dtype == bool else np.asarray(pop.spikes).astype(int)
+                
+                # 3. Only activate indices that actually exist in the backend
+                valid_pre = active_indices[active_indices < n_pre_required]
+                valid_post = active_indices[active_indices < n_post_required]
+                
+                s_mask_pre[valid_pre] = True
+                s_mask_post[valid_post] = True
 
-            # 3. BOUNDARY CLIPPING (Prevents IndexError)
-            idx_pre = spike_idx[spike_idx < n_pre_limit]
-            idx_post = spike_idx[spike_idx < n_post_limit]
-
-            # 4. DISPATCH
+            # 4. EXECUTE
             method = getattr(stdp_eng, 'step', getattr(stdp_eng, 'update', None))
             if method:
-                # We pass the integer arrays directly
-                method(epoch*0.1, idx_pre, idx_post)
+                # We send the perfectly sized boolean mask
+                method(epoch*0.1, s_mask_pre, s_mask_post)
             
             w_history.append(float(np.mean(W.weights)))
             
-            # --- ACTIVITY HEATMAP ---
-            # Create visualization mask for the grid
-            viz_mask = np.zeros(256)
-            viz_mask[spike_idx[spike_idx < 256]] = 1.0
-            viz_grid = viz_mask.reshape((16, 16))
+            # Update Activity Map (16x16)
+            viz_grid = np.zeros(256)
+            # Ensure viz matches the local N_stdp size
+            current_spikes = np.where(pop.spikes)[0] if np.asarray(pop.spikes).dtype == bool else pop.spikes
+            viz_grid[current_spikes[current_spikes < 256]] = 1.0
             
-            fig, ax = plt.subplots(figsize=(3, 3))
-            ax.imshow(viz_grid, cmap='magma', interpolation='nearest')
+            fig, ax = plt.subplots(figsize=(3,3))
+            ax.imshow(viz_grid.reshape((16,16)), cmap='magma')
             ax.axis('off')
             map_placeholder.pyplot(fig)
             plt.close(fig)
