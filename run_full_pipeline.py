@@ -1,144 +1,169 @@
+"""
+axiom_neuro/examples/run_full_pipeline.py
+==========================================
+Full Axiom-Neuro Pipeline Demonstration: Final Stable Build
+=========================================
+"""
+
 import sys
 import os
-import importlib.util
-from pathlib import Path
-import types
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")  # Headless mode for server/cloud stability
 import matplotlib.pyplot as plt
-import streamlit as st
-import time
+from pathlib import Path
 
-# --- 1. CORE ARCHITECTURAL INJECTOR ---
-root_dir = Path(__file__).parent.absolute()
-sys.path.insert(0, str(root_dir))
+# --- 1. DYNAMIC PATH RESOLUTION ---
+# Ensures the script can find 'axiom_neuro' regardless of where it's launched
+current_dir = Path(__file__).parent.absolute()
+repo_root = current_dir.parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
 
-def initialize_system():
-    pkg_name = "axiom_neuro"
-    if pkg_name in sys.modules: return
-    axiom_neuro = types.ModuleType(pkg_name)
-    axiom_neuro.__path__ = [str(root_dir)]
-    axiom_neuro.__package__ = pkg_name
-    sys.modules[pkg_name] = axiom_neuro
-    for sub in ["core", "io", "learning", "geometry", "visualization"]:
-        m = types.ModuleType(f"{pkg_name}.{sub}")
-        m.__path__ = [str(root_dir)]
-        m.__package__ = pkg_name
-        sys.modules[f"{pkg_name}.{sub}"] = m
-        setattr(axiom_neuro, sub, m)
+# --- 2. SECURE IMPORTS ---
+try:
+    from axiom_neuro.core.simulation_engine import SimulationEngine, SimConfig
+    from axiom_neuro.io.data_loader import SyntheticDataGenerator, SpikeDataLoader, ReplayEngine
+    from axiom_neuro.core.lif_model import LIFPopulation, LIFParams
+    from axiom_neuro.core.synaptic_matrix import SparseWeightMatrix, SynapseParams
+    from axiom_neuro.learning.stdp import STDPEngine, STDPParams
+    from axiom_neuro.geometry.manifold_mapper import NeuronEmbedding, ManifoldMapper
+except ImportError as e:
+    print(f"CRITICAL: Module loading failed. Ensure folder structure is correct. Error: {e}")
+    sys.exit(1)
 
-initialize_system()
+def example_1_basic_simulation():
+    """Run a basic LIF network and produce raster + dashboard."""
+    print("\n" + "="*60)
+    print("  Example 1: Basic LIF Simulation with STDP")
+    print("="*60)
 
-def load_and_inject(module_path, filename):
-    full_path = root_dir / f"{filename}.py"
-    if not full_path.exists(): return None
-    spec = importlib.util.spec_from_file_location(module_path, str(full_path))
-    mod = importlib.util.module_from_spec(spec)
-    mod.__package__ = module_path.rsplit('.', 1)[0]
-    sys.modules[module_path] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    cfg = SimConfig(
+        n_neurons         = 500,
+        duration_ms       = 200.0,
+        dt                = 0.1,
+        conn_density      = 0.08,
+        base_current      = 2.2,
+        current_noise     = 0.8,
+        stdp_enabled      = True,
+        homeostasis       = True,
+        r_target          = 8.0,
+        manifold_enabled  = True,
+        record_interval   = 5,
+        save_raster       = True,
+        save_dashboard    = True,
+        output_dir        = "outputs",
+    )
 
-# --- 2. MODULE LOADING ---
-lif_model = load_and_inject("axiom_neuro.core.lif_model", "lif_model")
-synaptic_matrix = load_and_inject("axiom_neuro.core.synaptic_matrix", "synaptic_matrix")
-stdp = load_and_inject("axiom_neuro.learning.stdp", "stdp")
-manifold_mapper = load_and_inject("axiom_neuro.geometry.manifold_mapper", "manifold_mapper")
+    sim = SimulationEngine(cfg)
+    result = sim.run(verbose=True, progress_every=500)
 
-def get_attr(mod, *names):
-    for n in names:
-        a = getattr(mod, n, None)
-        if a: return a
-    return None
+    if sim.mapper:
+        t_v, vols = sim.mapper.get_volume_trace()
+        if len(vols) > 0:
+            print(f"Volume range       : [{vols.min():.4f}, {vols.max():.4f}]")
 
-LIFPopulation = get_attr(lif_model, "LIFPopulation")
-LIFParams = get_attr(lif_model, "LIFParams")
-SparseWeightMatrix = get_attr(synaptic_matrix, "SparseWeightMatrix")
-SynapseParams = get_attr(synaptic_matrix, "SynapseParams")
-STDPEngine = get_attr(stdp, "STDPEngine")
-STDPParams = get_attr(stdp, "STDPParams")
-ManifoldMapper = get_attr(manifold_mapper, "ManifoldMapper")
-NeuronEmbedding = get_attr(manifold_mapper, "NeuronEmbedding", "Neuron")
-
-# --- 3. UI DASHBOARD ---
-st.set_page_config(page_title="Axiom-Neuro Research", layout="wide")
-st.title(r"🔬 Axiom-Neuro: High-Fidelity SNN Engine")
-
-tab1, tab2 = st.tabs(["📊 Manifold Geometry", "🧠 Plasticity & Activity Map"])
-
-with tab1:
-    st.header("Topological Analysis")
-    if st.button("🚀 Run Analysis"):
-        N_topo = 400
-        pop = LIFPopulation(LIFParams(n_neurons=N_topo))
-        emb = NeuronEmbedding(N_topo, 'toroidal')
-        mapper = ManifoldMapper(emb)
-        for t in range(100):
-            spikes = pop.step(t*0.1, np.random.normal(3.0, 0.5, N_topo))
-            if np.any(spikes): mapper.update(t*0.1, np.where(spikes)[0])
-        st.line_chart(mapper.get_volume_trace()[1])
-
-with tab2:
-    st.header("Neuro-Activity Map & STDP")
-    col_map, col_trace = st.columns(2)
-    map_placeholder = col_map.empty()
-    chart_placeholder = col_trace.empty()
-
-    if st.button("🚀 Start Live Simulation"):
-        # We use 256 neurons for a clean 16x16 grid
-        N_stdp = 256 
-        pop = LIFPopulation(LIFParams(n_neurons=N_stdp))
-        W = SparseWeightMatrix(SynapseParams(n_pre=N_stdp, n_post=N_stdp))
-        stdp_eng = STDPEngine(STDPParams(), W, N_stdp, N_stdp)
-        
-        # --- THE ULTIMATE SHAPE SYNCHRONIZER ---
-        # We grab the EXACT expected size from the backend arrays themselves
-        # This bypasses any mismatch between UI config and STDP internal state
+        # Minkowski Sum of last two manifolds
         try:
-            n_pre_required = len(stdp_eng.x_pre)
-            n_post_required = len(stdp_eng.x_post)
-        except AttributeError:
-            n_pre_required = N_stdp
-            n_post_required = N_stdp
+            mink_verts = sim.mapper.minkowski_sum_consecutive()
+            if mink_verts is not None:
+                print(f"Minkowski Sum verts: {len(mink_verts)}")
+        except Exception:
+            print("Minkowski Sum: Insufficient geometry data.")
 
-        w_history = []
-        for epoch in range(100):
-            pop.step(epoch*0.1, np.ones(N_stdp) * 3.0)
-            
-            # --- CREATE THE PERFECT MASK ---
-            # 1. Start with zeros of the EXACT size the backend expects
-            s_mask_pre = np.zeros(n_pre_required, dtype=bool)
-            s_mask_post = np.zeros(n_post_required, dtype=bool)
-            
-            if pop.spikes is not None:
-                # 2. Get active indices from current population
-                active_indices = np.where(pop.spikes)[0] if np.asarray(pop.spikes).dtype == bool else np.asarray(pop.spikes).astype(int)
-                
-                # 3. Only activate indices that actually exist in the backend
-                valid_pre = active_indices[active_indices < n_pre_required]
-                valid_post = active_indices[active_indices < n_post_required]
-                
-                s_mask_pre[valid_pre] = True
-                s_mask_post[valid_post] = True
+    sim.save_results("example_1", result)
+    return result
 
-            # 4. EXECUTE
-            method = getattr(stdp_eng, 'step', getattr(stdp_eng, 'update', None))
-            if method:
-                # We send the perfectly sized boolean mask
-                method(epoch*0.1, s_mask_pre, s_mask_post)
-            
-            w_history.append(float(np.mean(W.weights)))
-            
-            # Update Activity Map (16x16)
-            viz_grid = np.zeros(256)
-            # Ensure viz matches the local N_stdp size
-            current_spikes = np.where(pop.spikes)[0] if np.asarray(pop.spikes).dtype == bool else pop.spikes
-            viz_grid[current_spikes[current_spikes < 256]] = 1.0
-            
-            fig, ax = plt.subplots(figsize=(3,3))
-            ax.imshow(viz_grid.reshape((16,16)), cmap='magma')
-            ax.axis('off')
-            map_placeholder.pyplot(fig)
-            plt.close(fig)
-            
-            chart_placeholder.line_chart(w_history)
-            time.sleep(0.01)
+def example_2_synthetic_replay():
+    """Generate oscillatory spike data and replay through SNN."""
+    print("\n" + "="*60)
+    print("  Example 2: Synthetic Data Replay + Weight Learning")
+    print("="*60)
+
+    gen = SyntheticDataGenerator()
+    data = gen.oscillatory_spikes(n_neurons=200, duration_ms=100.0, freq_hz=40.0)
+    
+    loader = SpikeDataLoader()
+    Path("outputs").mkdir(exist_ok=True)
+    csv_path = "outputs/synthetic_spikes.csv"
+    loader.save_csv(data, csv_path)
+    data2 = loader.load_csv(csv_path, n_neurons=200)
+
+    # Build SNN Replay Architecture
+    lp = LIFParams(n_neurons=200, dt=0.1)
+    sp = SynapseParams(n_pre=200, n_post=200, density=0.1)
+    pop = LIFPopulation(lp)
+    W = SparseWeightMatrix(sp)
+    stdp = STDPEngine(STDPParams(homeostasis_enabled=True), W, 200, 200)
+
+    engine = ReplayEngine(pop, W, stdp)
+    res = engine.run(data2, n_epochs=3, base_current=1.5)
+
+    print(f"Replay complete. Final Mean Weight: {np.mean(W.weights):.4f}")
+    return res
+
+def example_3_manifold_analysis():
+    """Information Geometry Deep-Dive."""
+    print("\n" + "="*60)
+    print("  Example 3: Information Manifold Geometry")
+    print("="*60)
+
+    N = 300
+    lp = LIFParams(n_neurons=N)
+    sp = SynapseParams(n_pre=N, n_post=N)
+    pop, W = LIFPopulation(lp), SparseWeightMatrix(sp)
+    
+    emb = NeuronEmbedding(N, 'toroidal')
+    mapper = ManifoldMapper(emb, history_len=1000)
+
+    # Simulate and update manifold
+    for step in range(500):
+        t = step * 0.1
+        spikes = pop.step(t, np.random.normal(3.0, 0.5, N))
+        if step % 5 == 0:
+            mapper.update(t, np.where(spikes)[0])
+
+    t_v, vols = mapper.get_volume_trace()
+    if len(vols) > 1:
+        plt.figure(figsize=(10, 4), facecolor="#0d0f14")
+        plt.plot(t_v, vols, color="#f77b4d")
+        plt.title("Neural Manifold Volume Expansion", color="white")
+        plt.savefig("outputs/manifold_geometry.png", facecolor="#0d0f14")
+        print("Saved outputs/manifold_geometry.png")
+
+def example_4_membrane_potential_trace():
+    """Visualise V(t) for a population subset."""
+    print("\n" + "="*60)
+    print("  Example 4: Membrane Potential Traces")
+    print("="*60)
+
+    N = 10
+    lp = LIFParams(n_neurons=N, dt=0.05)
+    pop = LIFPopulation(lp)
+
+    n_steps = 1000
+    V_trace = np.zeros((N, n_steps))
+    for step in range(n_steps):
+        pop.step(step * 0.05, np.ones(N) * 2.5)
+        V_trace[:, step] = pop.V
+
+    plt.figure(figsize=(12, 6), facecolor="#0d0f14")
+    for i in range(5):
+        plt.plot(V_trace[i], label=f"Neuron {i}", alpha=0.8)
+    plt.axhline(lp.V_thresh, color='red', linestyle='--', alpha=0.3)
+    plt.legend()
+    plt.savefig("outputs/membrane_potential.png", facecolor="#0d0f14")
+    print("Saved outputs/membrane_potential.png")
+
+if __name__ == "__main__":
+    Path("outputs").mkdir(exist_ok=True)
+    try:
+        example_4_membrane_potential_trace()
+        example_1_basic_simulation()
+        example_2_synthetic_replay()
+        example_3_manifold_analysis()
+        print("\nPIPELINE SUCCESS: All modules verified.")
+    except Exception as e:
+        print(f"\nPIPELINE FAILED: {e}")
+        import traceback
+        traceback.print_exc()
