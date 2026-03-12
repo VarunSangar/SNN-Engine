@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 # --- 1. CORE ARCHITECTURAL INJECTOR ---
+# This ensures Axiom-Neuro behaves like a real installed package
 root_dir = Path(__file__).parent.absolute()
 sys.path.insert(0, str(root_dir))
 
@@ -37,7 +38,7 @@ def load_and_inject(module_path, filename):
     spec.loader.exec_module(mod)
     return mod
 
-# --- 2. MODULE LOADING ---
+# --- 2. MODULE LOADING & CLASS MAPPING ---
 lif_model = load_and_inject("axiom_neuro.core.lif_model", "lif_model")
 synaptic_matrix = load_and_inject("axiom_neuro.core.synaptic_matrix", "synaptic_matrix")
 stdp = load_and_inject("axiom_neuro.learning.stdp", "stdp")
@@ -62,12 +63,14 @@ NeuronEmbedding = get_attr(manifold_mapper, "NeuronEmbedding", "Neuron")
 
 # --- 3. RESEARCH DASHBOARD UI ---
 st.set_page_config(page_title="Axiom-Neuro Research", layout="wide", page_icon="🔬")
-st.title(r"🔬 Axiom-Neuro: Topological SNN Engine")
+st.title(r"🔬 Axiom-Neuro: High-Fidelity SNN Engine")
 
-tab1, tab2 = st.tabs(["Manifold Geometry", "Plasticity Trials"])
+tab1, tab2, tab3 = st.tabs(["Manifold Geometry", "Plasticity Trials", "Engine Specs"])
 
 with tab1:
     st.header("Minkowski Functional Analysis")
+    st.markdown("Quantifying neural state-space topology through Minkowski TDA.")
+    
     if st.button("🚀 Run Topological Analysis"):
         with st.spinner("Mapping Neural State-Space..."):
             N = 400
@@ -75,28 +78,28 @@ with tab1:
             mapper = ManifoldMapper(emb)
             pop = LIFPopulation(LIFParams(n_neurons=N))
             
-            # Record enough steps to avoid "Empty Slice" errors
             for t_step in range(150):
-                spikes = pop.step(t_step*0.1, np.random.normal(2.8, 0.4, N))
-                # Only update mapper if spikes occurred
+                # Using a slightly higher base current to ensure spiking for the manifold
+                spikes = pop.step(t_step*0.1, np.random.normal(3.0, 0.5, N))
                 if np.any(spikes):
                     mapper.update(t_step*0.1, np.where(spikes)[0])
                 
             t_vals, vol_data = mapper.get_volume_trace()
             _, area_data = mapper.get_area_trace()
             
-            # --- RESEARCH SAFETY CHECK ---
             if len(vol_data) > 0 and not np.all(vol_data == 0):
+                # Isoperimetric Ratio: A measure of spherical efficiency in state-space
                 iso_ratio = (36 * np.pi * vol_data**2) / (area_data**3 + 1e-9)
                 
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Manifold Volume ($V$)", f"{np.mean(vol_data):.4f}")
                 m2.metric("Surface Complexity ($A$)", f"{np.mean(area_data):.4f}")
+                # Fixed: Raw string for Eta symbol
                 m3.metric(r"Info Efficiency ($\eta$)", f"{np.mean(iso_ratio):.4f}")
                 
                 st.line_chart(vol_data)
             else:
-                st.warning("Insufficient spiking activity to generate manifold metrics. Try increasing base current.")
+                st.warning("Insufficient spiking activity. Increase base current in config.")
 
 with tab2:
     st.header("Synaptic Dynamics (STDP)")
@@ -111,15 +114,34 @@ with tab2:
             for epoch in range(100):
                 pop.step(epoch*0.1, np.ones(N)*2.5)
                 
-                # --- UNIVERSAL DISPATCHER (Fixes AttributeError) ---
+                # --- THE CRITICAL FIX: BOOLEAN MASKING ---
+                # This prevents the IndexError in stdp.py line 139
+                s_mask = np.zeros(N, dtype=bool)
+                if pop.spikes is not None:
+                    # Works whether pop.spikes is a list of indices or a mask
+                    s_mask[pop.spikes] = True 
+                
+                # --- UNIVERSAL DISPATCHER ---
+                # Probes the object for the correct method name
                 if hasattr(stdp_eng, 'step'):
-                    stdp_eng.step(epoch*0.1, pop.spikes, pop.spikes)
+                    stdp_eng.step(epoch*0.1, s_mask, s_mask)
                 elif hasattr(stdp_eng, 'update'):
-                    stdp_eng.update(epoch*0.1, pop.spikes, pop.spikes)
+                    stdp_eng.update(epoch*0.1, s_mask, s_mask)
                 elif hasattr(stdp_eng, 'apply_stdp'):
-                    stdp_eng.apply_stdp(epoch*0.1, pop.spikes, pop.spikes)
+                    stdp_eng.apply_stdp(epoch*0.1, s_mask, s_mask)
                 
                 w_history.append(np.mean(W.weights))
             
             st.line_chart(w_history)
-            st.success("STDP stabilization complete.")
+            st.success("Synaptic stabilization complete.")
+
+with tab3:
+    st.header("Engine Specifications")
+    st.write("Current Axiom-Neuro Build: **v2.1 (MA-Stable)**")
+    st.code(f"""
+    Neuron Model: Leaky Integrate-and-Fire (LIF)
+    Plasticity: Spike-Timing-Dependent (STDP)
+    Geometry: Minkowski Functional Mapper
+    State-Space: Toroidal Embedding
+    Python Version: {sys.version}
+    """)
