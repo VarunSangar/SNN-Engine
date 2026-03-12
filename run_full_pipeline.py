@@ -1,64 +1,64 @@
 import sys
 import os
-import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from pathlib import Path
-import time
 import types
+from pathlib import Path
 import streamlit as st
 
-# ── 1. BOOTSTRAP PATH ─────────────────────────────────────────────────────────
+# ── 1. BOOTSTRAP THE VIRTUAL PACKAGE ──────────────────────────────────────────
+# This stops the "no known parent package" error for good.
 file_path = Path(__file__).resolve()
 root_dir = file_path.parent
+
+# Create a dummy 'axiom_neuro' entry in sys.modules
+pkg_name = 'axiom_neuro'
+if pkg_name not in sys.modules:
+    fake_pkg = types.ModuleType(pkg_name)
+    fake_pkg.__path__ = [str(root_dir)]
+    fake_pkg.__file__ = str(root_dir / "__init__.py")
+    sys.modules[pkg_name] = fake_pkg
+
+# Add current directory to path so imports work
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-# ── 2. NATIVE IMPORTS (FLAT) ──────────────────────────────────────────────────
+# ── 2. MAP THE FLAT FILES TO THE PACKAGE NAMES ────────────────────────────────
+# We tell Python: "When a file asks for axiom_neuro.core, just look in this folder."
+module_mapping = {
+    f"{pkg_name}.core.simulation_engine": "simulation_engine",
+    f"{pkg_name}.core.lif_model": "lif_model",
+    f"{pkg_name}.core.synaptic_matrix": "synaptic_matrix",
+    f"{pkg_name}.learning.stdp": "stdp",
+    f"{pkg_name}.geometry.manifold_mapper": "manifold_mapper",
+    f"{pkg_name}.io.data_loader": "data_loader",
+}
+
+for full_path, file_name in module_mapping.items():
+    try:
+        # Import the flat file
+        mod = __import__(file_name)
+        # Register it under the 'fake' package path the other files expect
+        sys.modules[full_path] = mod
+        # Also handle sub-packages (e.g., axiom_neuro.core)
+        sub_pkg = ".".join(full_path.split(".")[:-1])
+        if sub_pkg not in sys.modules:
+            sys.modules[sub_pkg] = types.ModuleType(sub_pkg)
+    except ImportError:
+        pass
+
+# ── 3. NOW PERFORM THE ACTUAL IMPORTS ─────────────────────────────────────────
 try:
-    # Clear cache to force Python to see latest file changes
-    for mod in ['simulation_engine', 'lif_model', 'synaptic_matrix', 'stdp', 'manifold_mapper', 'data_loader']:
-        if mod in sys.modules:
-            del sys.modules[mod]
-
-    import simulation_engine
-    import lif_model
-    import synaptic_matrix
-    import stdp as stdp_mod
-    import manifold_mapper as manifold
-    import data_loader
-
-    # Safety Helper: Pulls class regardless of case-sensitivity or typos
-    def get_attr_safe(module, target):
-        options = [target, target.lower(), target.upper(), f"_{target}"]
-        for opt in options:
-            if hasattr(module, opt):
-                return getattr(module, opt)
-        # If not found, list what IS there for debugging
-        available = [a for a in dir(module) if not a.startswith('__')]
-        raise AttributeError(f"'{target}' not found in {module.__name__}. Available: {available}")
-
-    SimulationEngine = get_attr_safe(simulation_engine, "SimulationEngine")
-    SimConfig        = get_attr_safe(simulation_engine, "SimConfig")
-    LIFPopulation    = get_attr_safe(lif_model, "LIFPopulation")
-    LIFParams        = get_attr_safe(lif_model, "LIFParams")
-    SparseWeightMatrix = get_attr_safe(synaptic_matrix, "SparseWeightMatrix")
-    SynapseParams    = get_attr_safe(synaptic_matrix, "SynapseParams")
-    STDPEngine       = get_attr_safe(stdp_mod, "STDPEngine")
-    STDPParams       = get_attr_safe(stdp_mod, "STDPParams")
-    ManifoldMapper   = get_attr_safe(manifold, "ManifoldMapper")
-    
-    # Optional IO components
-    SyntheticDataGenerator = getattr(data_loader, "SyntheticDataGenerator", None)
-    ReplayEngine           = getattr(data_loader, "ReplayEngine", None)
-    
+    from axiom_neuro.core.simulation_engine  import SimulationEngine, SimConfig
+    from axiom_neuro.core.lif_model          import LIFPopulation, LIFParams
+    from axiom_neuro.core.synaptic_matrix    import SparseWeightMatrix, SynapseParams
+    from axiom_neuro.learning.stdp           import STDPEngine, STDPParams
+    from axiom_neuro.geometry.manifold_mapper import NeuronEmbedding, ManifoldMapper
+    from axiom_neuro.io.data_loader          import SyntheticDataGenerator, ReplayEngine
     _IMPORTS_OK = True
 except Exception as e:
     _IMPORTS_OK = False
     _IMPORT_ERR = str(e)
 
-# ── 3. UI CONFIG ──────────────────────────────────────────────────────────────
+# ── 4. UI SETUP ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Axiom-Neuro", page_icon="⬡", layout="wide")
  
 # ══════════════════════════════════════════════════════════════════════════════
