@@ -10,26 +10,18 @@ import types
 import streamlit as st
 
 # ── 1. BOOTSTRAP PATH ─────────────────────────────────────────────────────────
-# We define root_dir immediately and globally to prevent NameErrors
 file_path = Path(__file__).resolve()
 root_dir = file_path.parent
-if root_dir not in sys.path:
+if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-# ── 2. MODULE REGISTRATION (Python 3.14 Fix) ──────────────────────────────────
-# This prevents the 'NoneType' object has no attribute '__dict__' error
-# by pre-registering the flat files in sys.modules
-module_names = [
-    'lif_model', 'synaptic_matrix', 'stdp', 
-    'manifold_mapper', 'data_loader', 'simulation_engine'
-]
-for name in module_names:
-    if name not in sys.modules:
-        sys.modules[name] = types.ModuleType(name)
-
-# ── 3. SECURE NATIVE IMPORTS ──────────────────────────────────────────────────
+# ── 2. NATIVE IMPORTS (FLAT) ──────────────────────────────────────────────────
 try:
-    # Import as direct modules because the structure is FLAT
+    # Clear cache to force Python to see latest file changes
+    for mod in ['simulation_engine', 'lif_model', 'synaptic_matrix', 'stdp', 'manifold_mapper', 'data_loader']:
+        if mod in sys.modules:
+            del sys.modules[mod]
+
     import simulation_engine
     import lif_model
     import synaptic_matrix
@@ -37,33 +29,37 @@ try:
     import manifold_mapper as manifold
     import data_loader
 
-    # Map the classes to the names used in your existing code
-    SimulationEngine = simulation_engine.SimulationEngine
-    SimConfig        = simulation_engine.SimConfig
-    LIFPopulation    = lif_model.LIFPopulation
-    LIFParams        = lif_model.LIFParams
-    SparseWeightMatrix = synaptic_matrix.SparseWeightMatrix
-    SynapseParams    = synaptic_matrix.SynapseParams
-    STDPEngine       = stdp_mod.STDPEngine
-    STDPParams       = stdp_mod.STDPParams
-    NeuronEmbedding  = getattr(manifold, "NeuronEmbedding", None)
-    ManifoldMapper   = manifold.ManifoldMapper
-    SyntheticDataGenerator = data_loader.SyntheticDataGenerator
-    SpikeDataLoader        = data_loader.SpikeDataLoader
-    ReplayEngine           = data_loader.ReplayEngine
+    # Safety Helper: Pulls class regardless of case-sensitivity or typos
+    def get_attr_safe(module, target):
+        options = [target, target.lower(), target.upper(), f"_{target}"]
+        for opt in options:
+            if hasattr(module, opt):
+                return getattr(module, opt)
+        # If not found, list what IS there for debugging
+        available = [a for a in dir(module) if not a.startswith('__')]
+        raise AttributeError(f"'{target}' not found in {module.__name__}. Available: {available}")
+
+    SimulationEngine = get_attr_safe(simulation_engine, "SimulationEngine")
+    SimConfig        = get_attr_safe(simulation_engine, "SimConfig")
+    LIFPopulation    = get_attr_safe(lif_model, "LIFPopulation")
+    LIFParams        = get_attr_safe(lif_model, "LIFParams")
+    SparseWeightMatrix = get_attr_safe(synaptic_matrix, "SparseWeightMatrix")
+    SynapseParams    = get_attr_safe(synaptic_matrix, "SynapseParams")
+    STDPEngine       = get_attr_safe(stdp_mod, "STDPEngine")
+    STDPParams       = get_attr_safe(stdp_mod, "STDPParams")
+    ManifoldMapper   = get_attr_safe(manifold, "ManifoldMapper")
+    
+    # Optional IO components
+    SyntheticDataGenerator = getattr(data_loader, "SyntheticDataGenerator", None)
+    ReplayEngine           = getattr(data_loader, "ReplayEngine", None)
     
     _IMPORTS_OK = True
 except Exception as e:
     _IMPORTS_OK = False
     _IMPORT_ERR = str(e)
 
-# ── 4. UI CONFIG ──────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Axiom-Neuro",
-    page_icon="⬡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# ── 3. UI CONFIG ──────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Axiom-Neuro", page_icon="⬡", layout="wide")
  
 # ══════════════════════════════════════════════════════════════════════════════
 #  PALETTE & CSS
